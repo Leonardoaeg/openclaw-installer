@@ -46,18 +46,27 @@ export async function updateSession(request: NextRequest) {
   // with the Supabase client, your users may be randomly logged out.
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
+  const { pathname } = request.nextUrl;
 
-  if (
-    request.nextUrl.pathname !== "/" &&
-    !user &&
-    !request.nextUrl.pathname.startsWith("/login") &&
-    !request.nextUrl.pathname.startsWith("/auth")
-  ) {
-    // no user, potentially respond by redirecting the user to the login page
+  // Si no hay sesión, redirigir a login (excepto rutas públicas)
+  const publicPaths = ["/", "/pricing", "/auth"];
+  const isPublic = publicPaths.some((p) => pathname === p || pathname.startsWith(p));
+
+  if (!user && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
     return NextResponse.redirect(url);
   }
+
+  // Si hay sesión y visita login/signup, redirigir al dashboard
+  if (user && (pathname.startsWith("/auth/login") || pathname.startsWith("/auth/sign-up"))) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  // Rutas /admin — en producción se validará el rol is_admin desde la DB
+  // Por ahora el layout de /admin hace la verificación server-side
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is.
   // If you're creating a new response object with NextResponse.next() make sure to:
