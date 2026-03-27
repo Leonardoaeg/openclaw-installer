@@ -102,12 +102,6 @@ export default function LandingPage() {
         </div>
         <div className="flex items-center gap-3">
           <Link
-            href="/pricing"
-            className="text-sm text-slate-300 hover:text-white transition-colors px-4 py-2"
-          >
-            Precios
-          </Link>
-          <Link
             href="/auth/login"
             className="text-sm text-slate-300 hover:text-white transition-colors px-4 py-2"
           >
@@ -199,29 +193,6 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
-      </section>
-
-      {/* PRICING PREVIEW */}
-      <section className="relative z-10 max-w-5xl mx-auto px-6 pb-24 text-center">
-        <h2 className="text-3xl font-bold mb-3">Precios simples y transparentes</h2>
-        <p className="text-slate-400 text-sm mb-10">14 días gratis. Sin tarjeta de crédito.</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-left mb-8">
-          {[
-            { name: "Trial", price: "Gratis", note: "14 días", color: "border-slate-700" },
-            { name: "Starter", price: "$19/mes", note: "1 portafolio", color: "border-indigo-500/50" },
-            { name: "Business", price: "$24/mes", note: "5 portafolios", color: "border-purple-500/50" },
-            { name: "Business Pro", price: "$35/mes", note: "Ilimitado", color: "border-emerald-500/50" },
-          ].map((p) => (
-            <div key={p.name} className={`bg-white/[.03] border rounded-xl p-4 ${p.color}`}>
-              <p className="text-sm font-semibold text-white">{p.name}</p>
-              <p className="text-xl font-extrabold mt-1">{p.price}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{p.note}</p>
-            </div>
-          ))}
-        </div>
-        <Link href="/pricing" className="inline-flex items-center gap-2 text-indigo-400 hover:text-indigo-300 text-sm font-medium">
-          Ver todos los detalles de planes <ChevronRight className="w-4 h-4" />
-        </Link>
       </section>
 
       {/* CTA FINAL */}
