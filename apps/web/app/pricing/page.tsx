@@ -97,7 +97,7 @@ const PLANS = [
 ];
 
 export default function PricingPage() {
-  const [annual, setAnnual] = useState(false);
+  const [annual, setAnnual] = useState(true);
 
   return (
     <div className="min-h-screen bg-[#06101e] text-white">
