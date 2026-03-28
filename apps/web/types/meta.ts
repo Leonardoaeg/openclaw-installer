@@ -26,6 +26,7 @@ export interface MetricsOverview {
   total_impressions: number;
   total_clicks: number;
   total_conversions: number;
+  total_revenue: number;
   avg_ctr: number | null;
   avg_cpc: number | null;
   avg_roas: number | null;
@@ -37,7 +38,14 @@ export interface DailyMetric {
   spend: number;
   impressions: number;
   clicks: number;
+  reach: number;
   conversions: number;
+  initiate_checkout: number;
+  revenue: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  roas: number | null;
 }
 
 export interface CampaignMetric {

@@ -65,20 +65,23 @@ function StartOAuth() {
 function SelectAdAccount({ code }: { code: string }) {
   const router = useRouter();
   const [accounts, setAccounts] = useState<AdAccount[]>([]);
+  const [accessToken, setAccessToken] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState("");
   const connect = useConnectMetaAccount();
 
-  // Obtener las cuentas disponibles del usuario de Meta
+  // Exchange code for short-lived token and fetch available ad accounts.
+  // The access_token is kept in state so we don't reuse the one-time code.
   useEffect(() => {
     async function fetchAccounts() {
       try {
-        const data = await api.post<{ accounts: AdAccount[] }>(
+        const data = await api.post<{ accounts: AdAccount[]; access_token: string }>(
           "/v1/meta/available-accounts",
           { code }
         );
         setAccounts(data.accounts);
+        setAccessToken(data.access_token);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Error obteniendo cuentas.");
       } finally {
@@ -89,9 +92,9 @@ function SelectAdAccount({ code }: { code: string }) {
   }, [code]);
 
   const handleConfirm = async () => {
-    if (!selected) return;
+    if (!selected || !accessToken) return;
     try {
-      await connect.mutateAsync({ code, ad_account_id: selected });
+      await connect.mutateAsync({ access_token: accessToken, ad_account_id: selected });
       router.push("/dashboard/meta");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error conectando la cuenta.");

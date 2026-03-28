@@ -15,7 +15,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { format, subDays, eachDayOfInterval } from "date-fns";
+import { format, subDays, eachDayOfInterval, subDays as sub } from "date-fns";
 import { es } from "date-fns/locale";
 import {
   DollarSign,
@@ -26,9 +26,18 @@ import {
   TrendingUp,
   ArrowUpRight,
   ArrowDownRight,
+  ShoppingCart,
+  CreditCard,
+  BarChart2,
+  Percent,
+  Receipt,
+  Timer,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useMetricsDaily } from "@/hooks/use-metrics";
+import type { DailyMetric } from "@/types/meta";
 
 // ─── Datos mock ───────────────────────────────────────────────────────────────
 
@@ -47,45 +56,63 @@ function generateDays(days: number) {
   return eachDayOfInterval({ start, end }).map((date, i) => {
     const wave = 0.5 + 0.5 * Math.sin(i / 4.5);
     const noise = 0.82 + rand() * 0.36;
-    const impressions = Math.round((78_000 + 44_000 * wave) * noise);
-    const clicks = Math.round(impressions * (0.025 + 0.012 * wave) * (0.82 + rand() * 0.36));
-    const conversions = Math.round(clicks * (0.054 + 0.026 * wave) * (0.78 + rand() * 0.44));
-    const spend = Math.round(clicks * (0.21 + 0.19 * wave) * (0.82 + rand() * 0.36) * 100) / 100;
-    const ctr = clicks / impressions;
-    const cpc = spend / (clicks || 1);
-    const roas = conversions > 0 ? (conversions * 38) / spend : 0;
+    const impressions      = Math.round((78_000 + 44_000 * wave) * noise);
+    const clicks           = Math.round(impressions * (0.025 + 0.012 * wave) * (0.82 + rand() * 0.36));
+    const initiateCheckout = Math.round(clicks * (0.18 + 0.08 * wave) * (0.78 + rand() * 0.44));
+    const sales            = Math.round(initiateCheckout * (0.38 + 0.14 * wave) * (0.72 + rand() * 0.56));
+    const conversions      = Math.round(clicks * (0.054 + 0.026 * wave) * (0.78 + rand() * 0.44));
+    const spend            = Math.round(clicks * (0.21 + 0.19 * wave) * (0.82 + rand() * 0.36) * 100) / 100;
+    // presupuesto diario máx ~$250; carga = % consumido
+    const carga            = Math.min(100, Math.round(((spend / 250) * 100) * (0.9 + rand() * 0.2)));
+    // tiempo de carga de página en segundos (entre 1.2s y 3.8s con variación diaria)
+    const pageLoad         = Math.round((1.2 + rand() * 2.6 + 0.4 * Math.sin(i / 3)) * 100) / 100;
+    const ctr              = clicks / impressions;
+    const cpc              = spend / (clicks || 1);
+    const cvr              = conversions / (clicks || 1);
+    const initPayRate      = initiateCheckout / (clicks || 1);
+    const cpa              = spend / (conversions || 1);
+    const roas             = conversions > 0 ? (conversions * 38) / spend : 0;
     return {
       label: format(date, "d MMM", { locale: es }),
       impressions,
       clicks,
       conversions,
+      initiateCheckout,
+      sales,
       spend,
+      carga,
+      pageLoad,
       ctr,
       cpc,
+      cvr,
+      initPayRate,
+      cpa,
       roas,
     };
   });
 }
 
 const PERIODS = [
-  { label: "7d", days: 7 },
+  { label: "7d",  days: 7  },
   { label: "14d", days: 14 },
   { label: "30d", days: 30 },
   { label: "90d", days: 90 },
 ];
 
 const CHART_METRICS = [
-  { key: "spend",       label: "Gasto",       color: "#6366f1" },
-  { key: "clicks",      label: "Clics",       color: "#06b6d4" },
-  { key: "impressions", label: "Impresiones", color: "#f59e0b" },
-  { key: "conversions", label: "Conversiones",color: "#34d399" },
+  { key: "spend",            label: "Gasto",              color: "#6366f1" },
+  { key: "clicks",           label: "Clics",              color: "#06b6d4" },
+  { key: "impressions",      label: "Impresiones",        color: "#f59e0b" },
+  { key: "conversions",      label: "Conversiones",       color: "#34d399" },
+  { key: "sales",            label: "Ventas",             color: "#f43f5e" },
+  { key: "initiateCheckout", label: "Inicio de pagos",    color: "#a78bfa" },
 ] as const;
 
 const CAMPAIGNS = [
-  { name: "Temporada Verano",   color: "#6366f1", share: 0.38 },
-  { name: "Retargeting",        color: "#06b6d4", share: 0.27 },
-  { name: "Captación Leads B2B",color: "#34d399", share: 0.22 },
-  { name: "Awareness Marca",    color: "#f59e0b", share: 0.13 },
+  { name: "Temporada Verano",    color: "#6366f1", share: 0.38 },
+  { name: "Retargeting",         color: "#06b6d4", share: 0.27 },
+  { name: "Captación Leads B2B", color: "#34d399", share: 0.22 },
+  { name: "Awareness Marca",     color: "#f59e0b", share: 0.13 },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -96,6 +123,10 @@ function total(data: DayRow[], key: keyof DayRow) {
   return data.reduce((s, d) => s + (d[key] as number), 0);
 }
 
+function avg(data: DayRow[], key: keyof DayRow) {
+  return total(data, key) / (data.length || 1);
+}
+
 function fmtUSD(n: number) {
   return new Intl.NumberFormat("es-MX", {
     style: "currency", currency: "USD", maximumFractionDigits: 0,
@@ -104,7 +135,7 @@ function fmtUSD(n: number) {
 
 function fmtCompact(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`;
   return n.toFixed(0);
 }
 
@@ -120,9 +151,7 @@ function DeltaPill({ delta, inverse = false }: { delta: number; inverse?: boolea
   return (
     <span className={cn(
       "inline-flex items-center gap-0.5 text-[11px] font-semibold px-1.5 py-0.5 rounded-full",
-      good
-        ? "bg-emerald-500/10 text-emerald-500"
-        : "bg-red-500/10 text-red-400",
+      good ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-400",
     )}>
       <Icon className="w-3 h-3" />
       {Math.abs(delta).toFixed(1)}%
@@ -187,7 +216,7 @@ function KpiCard({ label, value, delta, inverse, sub, sparkData, accent, icon: I
 function ChartTip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-card border border-border rounded-xl shadow-xl px-3 py-2 text-sm min-w-[130px]">
+    <div className="bg-card border border-border rounded-xl shadow-xl px-3 py-2 text-sm min-w-[140px]">
       <p className="text-muted-foreground text-[11px] mb-1.5">{label}</p>
       {payload.map((p: { name: string; value: number; color: string }) => (
         <div key={p.name} className="flex items-center justify-between gap-3">
@@ -196,9 +225,9 @@ function ChartTip({ active, payload, label }: any) {
             <span className="text-muted-foreground text-[11px]">{p.name}</span>
           </div>
           <span className="font-semibold text-[12px]">
-            {p.name === "Gasto" || p.name === "CPC"
+            {["Gasto", "CPC", "CPA"].includes(p.name)
               ? `$${p.value.toFixed(2)}`
-              : p.name === "CTR"
+              : ["CTR", "CVR", "Inicio pagos %"].includes(p.name)
               ? `${(p.value * 100).toFixed(2)}%`
               : fmtCompact(p.value)}
           </span>
@@ -209,16 +238,20 @@ function ChartTip({ active, payload, label }: any) {
 }
 
 function ConversionFunnel({
-  impressions, clicks, conversions,
-}: { impressions: number; clicks: number; conversions: number }) {
+  impressions, clicks, initiateCheckout, sales,
+}: { impressions: number; clicks: number; initiateCheckout: number; sales: number }) {
   const stages = [
-    { label: "Impresiones", value: impressions, color: "#6366f1", w: 100 },
-    { label: "Clics",       value: clicks,      color: "#06b6d4", w: Math.max(14, (clicks / impressions) * 100 * 7) },
-    { label: "Conversiones",value: conversions, color: "#34d399", w: Math.max(8,  (conversions / impressions) * 100 * 40) },
+    { label: "Impresiones",       value: impressions,      color: "#6366f1", w: 100 },
+    { label: "Clics",             value: clicks,           color: "#06b6d4", w: Math.max(14, (clicks / impressions) * 100 * 7) },
+    { label: "Inicio de pagos",   value: initiateCheckout, color: "#a78bfa", w: Math.max(10, (initiateCheckout / impressions) * 100 * 18) },
+    { label: "Ventas",            value: sales,            color: "#f43f5e", w: Math.max(6,  (sales / impressions) * 100 * 50) },
   ];
-  const ctr = ((clicks / impressions) * 100).toFixed(2);
-  const cvr = ((conversions / (clicks || 1)) * 100).toFixed(2);
-  const connectors = [`${ctr}% CTR`, `${cvr}% CVR`];
+
+  const connectorRates = [
+    `${((clicks / impressions) * 100).toFixed(2)}% CTR`,
+    `${((initiateCheckout / (clicks || 1)) * 100).toFixed(1)}% inicio`,
+    `${((sales / (initiateCheckout || 1)) * 100).toFixed(1)}% cierre`,
+  ];
 
   return (
     <div className="space-y-1.5">
@@ -228,17 +261,19 @@ function ConversionFunnel({
             <span className="text-xs font-medium text-muted-foreground">{s.label}</span>
             <span className="text-xs font-bold tabular-nums">{fmtCompact(s.value)}</span>
           </div>
-          <div className="h-9 flex items-center justify-center">
+          <div className="h-8 flex items-center">
             <div
-              className="h-full rounded-lg transition-all duration-700 relative flex items-center justify-center"
-              style={{ width: `${s.w}%`, backgroundColor: `${s.color}22`, border: `1px solid ${s.color}44` }}
-            >
-              <div className="h-full rounded-lg absolute left-0 top-0" style={{ width: "100%", backgroundColor: `${s.color}12` }} />
-            </div>
+              className="h-full rounded-lg transition-all duration-700"
+              style={{
+                width: `${Math.min(s.w, 100)}%`,
+                backgroundColor: `${s.color}22`,
+                border: `1px solid ${s.color}44`,
+              }}
+            />
           </div>
           {i < stages.length - 1 && (
             <p className="text-center text-[11px] text-muted-foreground/60 my-0.5">
-              ↓ {connectors[i]}
+              ↓ {connectorRates[i]}
             </p>
           )}
         </div>
@@ -254,25 +289,83 @@ export default function MetricsPage() {
   const [activeMetric, setActiveMetric] = useState<typeof CHART_METRICS[number]["key"]>("spend");
 
   const days = PERIODS[periodIdx].days;
-  const data = useMemo(() => generateDays(days), [days]);
 
-  // Totales del período
-  const totalSpend       = total(data, "spend");
-  const totalImpressions = total(data, "impressions");
-  const totalClicks      = total(data, "clicks");
-  const totalConversions = total(data, "conversions");
-  const avgCtr  = totalClicks / (totalImpressions || 1);
-  const avgCpc  = totalSpend  / (totalClicks      || 1);
-  const avgRoas = (totalConversions * 38) / (totalSpend || 1);
+  // ── Rango de fechas para el período seleccionado ──
+  const dateRange = useMemo(() => {
+    const to = new Date();
+    const from = subDays(to, days - 1);
+    return { from, to };
+  }, [days]);
 
-  // Período anterior (ratio fijo para deltas limpios)
-  const prevSpend       = totalSpend       * 0.868;
-  const prevImpressions = totalImpressions * 0.891;
-  const prevClicks      = totalClicks      * 0.879;
-  const prevConversions = totalConversions * 0.852;
-  const prevCtr  = prevClicks / (prevImpressions || 1);
-  const prevCpc  = prevSpend  / (prevClicks      || 1);
-  const prevRoas = (prevConversions * 38) / (prevSpend || 1);
+  // ── Datos reales de Meta ──
+  const { data: realDaily, isLoading } = useMetricsDaily(dateRange);
+
+  // ── Datos mock (fallback mientras no hay cuenta conectada) ──
+  const mockData = useMemo(() => generateDays(days), [days]);
+
+  // Normalizar datos reales al shape que usan los charts
+  const realDataMapped = useMemo(() => {
+    if (!realDaily || realDaily.length === 0) return null;
+    return realDaily.map((d: DailyMetric) => ({
+      label: format(new Date(d.date + "T12:00:00"), "d MMM", { locale: es }),
+      spend: d.spend,
+      impressions: d.impressions,
+      clicks: d.clicks,
+      conversions: d.conversions,
+      initiateCheckout: d.initiate_checkout,
+      sales: d.conversions, // Meta no distingue sales de conversions sin configuración adicional
+      reach: d.reach,
+      ctr: d.ctr,
+      cpc: d.cpc,
+      cpm: d.cpm,
+      roas: d.roas ?? 0,
+      cvr: d.clicks > 0 ? d.conversions / d.clicks : 0,
+      initPayRate: d.clicks > 0 ? d.initiate_checkout / d.clicks : 0,
+      cpa: d.conversions > 0 ? d.spend / d.conversions : 0,
+      // campos no disponibles en Meta Ads directamente
+      carga: 0,
+      pageLoad: 0,
+    }));
+  }, [realDaily]);
+
+  const data = realDataMapped ?? mockData;
+  const isRealData = !!realDataMapped;
+
+  // ── Totales y promedios ──
+  const totalSpend            = total(data, "spend");
+  const totalImpressions      = total(data, "impressions");
+  const totalClicks           = total(data, "clicks");
+  const totalConversions      = total(data, "conversions");
+  const totalSales            = total(data, "sales");
+  const totalInitiateCheckout = total(data, "initiateCheckout");
+
+  const avgCtr          = totalClicks / (totalImpressions || 1);
+  const avgCpc          = totalSpend  / (totalClicks      || 1);
+  const avgRoas         = isRealData
+    ? (realDaily!.reduce((s, d) => s + (d.roas ?? 0), 0) / (realDaily!.filter(d => d.roas).length || 1))
+    : (totalConversions * 38) / (totalSpend || 1);
+  const avgCvr          = totalConversions      / (totalClicks           || 1);
+  const avgInitPayRate  = totalInitiateCheckout / (totalClicks           || 1);
+  const avgCpa          = totalSpend            / (totalConversions      || 1);
+  const avgCarga        = avg(data, "carga");
+  const avgPageLoad     = avg(data, "pageLoad");
+
+  // ── Período anterior (ratio fijo para deltas) ──
+  const prevSpend            = totalSpend            * 0.868;
+  const prevImpressions      = totalImpressions      * 0.891;
+  const prevClicks           = totalClicks           * 0.879;
+  const prevConversions      = totalConversions      * 0.852;
+  const prevSales            = totalSales            * 0.841;
+  const prevInitiateCheckout = totalInitiateCheckout * 0.863;
+  const prevCarga            = avgCarga              * 0.927;
+  const prevPageLoad         = avgPageLoad           * 1.08;
+
+  const prevCtr         = prevClicks           / (prevImpressions      || 1);
+  const prevCpc         = prevSpend            / (prevClicks           || 1);
+  const prevRoas        = (prevConversions * 38) / (prevSpend          || 1);
+  const prevCvr         = prevConversions      / (prevClicks           || 1);
+  const prevInitPayRate = prevInitiateCheckout / (prevClicks           || 1);
+  const prevCpa         = prevSpend            / (prevConversions      || 1);
 
   const metric = CHART_METRICS.find(m => m.key === activeMetric)!;
 
@@ -292,12 +385,16 @@ export default function MetricsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Métricas</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            Análisis de rendimiento · datos de los últimos {days} días
+          <p className="text-muted-foreground text-sm mt-0.5 flex items-center gap-2">
+            {isLoading ? (
+              <><Loader2 className="w-3 h-3 animate-spin" /> Cargando datos de Meta...</>
+            ) : isRealData ? (
+              <>Datos reales · últimos {days} días</>
+            ) : (
+              <>Vista previa · <span className="text-amber-500 font-medium">conecta tu cuenta Meta para ver datos reales</span></>
+            )}
           </p>
         </div>
-
-        {/* Selector de período */}
         <div className="flex items-center gap-1 bg-muted p-1 rounded-xl self-start sm:self-auto">
           {PERIODS.map((p, i) => (
             <button
@@ -316,59 +413,125 @@ export default function MetricsPage() {
         </div>
       </div>
 
-      {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <KpiCard
-          label="Gasto total"
-          value={fmtUSD(totalSpend)}
-          delta={pct(totalSpend, prevSpend)}
-          sub={`CPC: $${avgCpc.toFixed(2)}`}
-          sparkData={data.map(d => d.spend)}
-          accent="#6366f1"
-          icon={DollarSign}
-        />
-        <KpiCard
-          label="Impresiones"
-          value={fmtCompact(totalImpressions)}
-          delta={pct(totalImpressions, prevImpressions)}
-          sparkData={data.map(d => d.impressions)}
-          accent="#f59e0b"
-          icon={Eye}
-        />
-        <KpiCard
-          label="Clics"
-          value={fmtCompact(totalClicks)}
-          delta={pct(totalClicks, prevClicks)}
-          sparkData={data.map(d => d.clicks)}
-          accent="#06b6d4"
-          icon={MousePointerClick}
-        />
-        <KpiCard
-          label="CTR promedio"
-          value={`${(avgCtr * 100).toFixed(2)}%`}
-          delta={pct(avgCtr, prevCtr)}
-          sparkData={data.map(d => d.ctr)}
-          accent="#8b5cf6"
-          icon={Target}
-        />
-        <KpiCard
-          label="CPC promedio"
-          value={`$${avgCpc.toFixed(2)}`}
-          delta={pct(avgCpc, prevCpc)}
-          inverse
-          sparkData={data.map(d => d.cpc)}
-          accent="#f97316"
-          icon={Zap}
-        />
-        <KpiCard
-          label="ROAS"
-          value={`${avgRoas.toFixed(2)}x`}
-          delta={pct(avgRoas, prevRoas)}
-          sub={`${fmtCompact(totalConversions)} conversiones`}
-          sparkData={data.map(d => d.roas)}
-          accent="#34d399"
-          icon={TrendingUp}
-        />
+      {/* ── KPI Cards — fila 1: métricas base ── */}
+      <div>
+        <p className="text-xs text-muted-foreground font-medium mb-2 uppercase tracking-wider">Rendimiento general</p>
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+          <KpiCard
+            label="Gasto total"
+            value={fmtUSD(totalSpend)}
+            delta={pct(totalSpend, prevSpend)}
+            sub={`CPC: $${avgCpc.toFixed(2)}`}
+            sparkData={data.map(d => d.spend)}
+            accent="#6366f1"
+            icon={DollarSign}
+          />
+          <KpiCard
+            label="Impresiones"
+            value={fmtCompact(totalImpressions)}
+            delta={pct(totalImpressions, prevImpressions)}
+            sparkData={data.map(d => d.impressions)}
+            accent="#f59e0b"
+            icon={Eye}
+          />
+          <KpiCard
+            label="Clics"
+            value={fmtCompact(totalClicks)}
+            delta={pct(totalClicks, prevClicks)}
+            sparkData={data.map(d => d.clicks)}
+            accent="#06b6d4"
+            icon={MousePointerClick}
+          />
+          <KpiCard
+            label="CTR promedio"
+            value={`${(avgCtr * 100).toFixed(2)}%`}
+            delta={pct(avgCtr, prevCtr)}
+            sparkData={data.map(d => d.ctr)}
+            accent="#8b5cf6"
+            icon={Target}
+          />
+          <KpiCard
+            label="CPC promedio"
+            value={`$${avgCpc.toFixed(2)}`}
+            delta={pct(avgCpc, prevCpc)}
+            inverse
+            sparkData={data.map(d => d.cpc)}
+            accent="#f97316"
+            icon={Zap}
+          />
+          <KpiCard
+            label="ROAS"
+            value={`${avgRoas.toFixed(2)}x`}
+            delta={pct(avgRoas, prevRoas)}
+            sub={`${fmtCompact(totalConversions)} conv.`}
+            sparkData={data.map(d => d.roas)}
+            accent="#34d399"
+            icon={TrendingUp}
+          />
+        </div>
+      </div>
+
+      {/* ── KPI Cards — fila 2: conversión y ventas ── */}
+      <div>
+        <p className="text-xs text-muted-foreground font-medium mb-2 uppercase tracking-wider">Conversión y ventas</p>
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+          <KpiCard
+            label="Carga de página"
+            value={`${avgPageLoad.toFixed(2)}s`}
+            delta={pct(avgPageLoad, prevPageLoad)}
+            inverse
+            sub="tiempo de carga promedio"
+            sparkData={data.map(d => d.pageLoad)}
+            accent="#e879f9"
+            icon={Timer}
+          />
+          <KpiCard
+            label="Carga publicitaria"
+            value={`${avgCarga.toFixed(0)}%`}
+            delta={pct(avgCarga, prevCarga)}
+            sub="% presupuesto consumido"
+            sparkData={data.map(d => d.carga)}
+            accent="#0ea5e9"
+            icon={BarChart2}
+          />
+          <KpiCard
+            label="Tasa de conversión"
+            value={`${(avgCvr * 100).toFixed(2)}%`}
+            delta={pct(avgCvr, prevCvr)}
+            sub={`${fmtCompact(totalConversions)} conversiones`}
+            sparkData={data.map(d => d.cvr)}
+            accent="#10b981"
+            icon={Percent}
+          />
+          <KpiCard
+            label="Inicio de pagos"
+            value={`${(avgInitPayRate * 100).toFixed(1)}%`}
+            delta={pct(avgInitPayRate, prevInitPayRate)}
+            sub={`${fmtCompact(totalInitiateCheckout)} inicios`}
+            sparkData={data.map(d => d.initPayRate)}
+            accent="#a78bfa"
+            icon={CreditCard}
+          />
+          <KpiCard
+            label="Ventas"
+            value={fmtCompact(totalSales)}
+            delta={pct(totalSales, prevSales)}
+            sub={`${fmtUSD(totalSales * 38)} ingresos est.`}
+            sparkData={data.map(d => d.sales)}
+            accent="#f43f5e"
+            icon={ShoppingCart}
+          />
+          <KpiCard
+            label="CPA general"
+            value={`$${avgCpa.toFixed(2)}`}
+            delta={pct(avgCpa, prevCpa)}
+            inverse
+            sub="costo por adquisición"
+            sparkData={data.map(d => d.cpa)}
+            accent="#fb923c"
+            icon={Receipt}
+          />
+        </div>
       </div>
 
       {/* ── Gráfico principal ── */}
@@ -448,7 +611,7 @@ export default function MetricsPage() {
         {/* CTR & CPC dual-axis */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">CTR y CPC diario</CardTitle>
+            <CardTitle className="text-base">CTR · CVR · CPC diario</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-52">
@@ -463,7 +626,7 @@ export default function MetricsPage() {
                     interval={tickInterval}
                   />
                   <YAxis
-                    yAxisId="ctr"
+                    yAxisId="rate"
                     tick={{ fontSize: 10 }}
                     tickLine={false}
                     axisLine={false}
@@ -480,36 +643,26 @@ export default function MetricsPage() {
                     tickFormatter={v => `$${v.toFixed(2)}`}
                   />
                   <Tooltip content={<ChartTip />} />
-                  <Line
-                    yAxisId="ctr"
-                    type="monotone"
-                    dataKey="ctr"
-                    name="CTR"
-                    stroke="#8b5cf6"
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 3, strokeWidth: 0 }}
-                  />
-                  <Line
-                    yAxisId="cpc"
-                    type="monotone"
-                    dataKey="cpc"
-                    name="CPC"
-                    stroke="#f97316"
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 3, strokeWidth: 0 }}
-                  />
+                  <Line yAxisId="rate" type="monotone" dataKey="ctr" name="CTR"
+                    stroke="#8b5cf6" strokeWidth={2} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
+                  <Line yAxisId="rate" type="monotone" dataKey="cvr" name="CVR"
+                    stroke="#10b981" strokeWidth={2} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} strokeDasharray="4 2" />
+                  <Line yAxisId="cpc" type="monotone" dataKey="cpc" name="CPC"
+                    stroke="#f97316" strokeWidth={2} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <div className="flex items-center gap-5 mt-2 pt-2 border-t">
+            <div className="flex items-center gap-5 mt-2 pt-2 border-t flex-wrap">
               {[
                 { color: "#8b5cf6", label: "CTR", value: `${(avgCtr * 100).toFixed(2)}%` },
+                { color: "#10b981", label: "CVR", value: `${(avgCvr * 100).toFixed(2)}%`, dashed: true },
                 { color: "#f97316", label: "CPC", value: `$${avgCpc.toFixed(2)}` },
               ].map(item => (
                 <div key={item.label} className="flex items-center gap-2">
-                  <div className="w-8 h-0.5 rounded" style={{ backgroundColor: item.color }} />
+                  <div className="w-8 h-0.5 rounded" style={{
+                    backgroundColor: item.color,
+                    backgroundImage: item.dashed ? `repeating-linear-gradient(90deg,${item.color} 0,${item.color} 4px,transparent 4px,transparent 6px)` : undefined,
+                  }} />
                   <span className="text-xs text-muted-foreground">{item.label}</span>
                   <span className="text-xs font-semibold">{item.value}</span>
                 </div>
@@ -518,7 +671,7 @@ export default function MetricsPage() {
           </CardContent>
         </Card>
 
-        {/* Embudo de conversión */}
+        {/* Embudo de conversión — 4 etapas */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Embudo de conversión</CardTitle>
@@ -527,23 +680,85 @@ export default function MetricsPage() {
             <ConversionFunnel
               impressions={totalImpressions}
               clicks={totalClicks}
-              conversions={totalConversions}
+              initiateCheckout={totalInitiateCheckout}
+              sales={totalSales}
             />
-            <div className="mt-4 pt-4 border-t grid grid-cols-3 divide-x text-center">
+            <div className="mt-4 pt-4 border-t grid grid-cols-4 divide-x text-center">
               {[
-                { label: "Alcance",     value: fmtCompact(totalImpressions), color: "#6366f1" },
-                { label: "Enganchados", value: fmtCompact(totalClicks),      color: "#06b6d4" },
-                { label: "Convertidos", value: fmtCompact(totalConversions), color: "#34d399" },
+                { label: "Alcance",   value: fmtCompact(totalImpressions),      color: "#6366f1" },
+                { label: "Clics",     value: fmtCompact(totalClicks),           color: "#06b6d4" },
+                { label: "Checkout",  value: fmtCompact(totalInitiateCheckout), color: "#a78bfa" },
+                { label: "Ventas",    value: fmtCompact(totalSales),            color: "#f43f5e" },
               ].map(s => (
-                <div key={s.label} className="px-2">
-                  <p className="text-lg font-bold tabular-nums" style={{ color: s.color }}>{s.value}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{s.label}</p>
+                <div key={s.label} className="px-1">
+                  <p className="text-base font-bold tabular-nums" style={{ color: s.color }}>{s.value}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* ── CPA y Carga diaria ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">CPA general y carga diaria</CardTitle>
+            <span className="text-xs text-muted-foreground">Período de {days} días</span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="h-52">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={false}
+                  interval={tickInterval}
+                />
+                <YAxis
+                  yAxisId="cpa"
+                  tick={{ fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={48}
+                  tickFormatter={v => `$${v.toFixed(0)}`}
+                />
+                <YAxis
+                  yAxisId="carga"
+                  orientation="right"
+                  tick={{ fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={36}
+                  tickFormatter={v => `${v}%`}
+                />
+                <Tooltip content={<ChartTip />} />
+                <Line yAxisId="cpa" type="monotone" dataKey="cpa" name="CPA"
+                  stroke="#fb923c" strokeWidth={2.5} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
+                <Line yAxisId="carga" type="monotone" dataKey="carga" name="Carga %"
+                  stroke="#0ea5e9" strokeWidth={2} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} strokeDasharray="4 2" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex items-center gap-6 mt-2 pt-2 border-t">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-0.5 rounded bg-[#fb923c]" />
+              <span className="text-xs text-muted-foreground">CPA promedio</span>
+              <span className="text-xs font-semibold">${avgCpa.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-0.5 rounded bg-[#0ea5e9]" />
+              <span className="text-xs text-muted-foreground">Carga media</span>
+              <span className="text-xs font-semibold">{avgCarga.toFixed(0)}%</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ── Rendimiento por campaña ── */}
       <Card>
@@ -596,7 +811,6 @@ export default function MetricsPage() {
             </ResponsiveContainer>
           </div>
 
-          {/* ROAS por campaña */}
           <div className="mt-4 pt-4 border-t">
             <p className="text-xs text-muted-foreground mb-3">ROAS por campaña</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

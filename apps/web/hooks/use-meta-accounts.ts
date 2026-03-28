@@ -12,7 +12,7 @@ export function useMetaAccounts() {
 export function useConnectMetaAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { code: string; ad_account_id: string }) =>
+    mutationFn: (body: { access_token: string; ad_account_id: string }) =>
       api.post<MetaAccount>("/v1/meta/connect", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["meta-accounts"] }),
   });
