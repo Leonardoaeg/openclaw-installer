@@ -500,6 +500,7 @@ def _sync_account_metrics_background(
                     "access_token": token,
                     "fields": INSIGHT_FIELDS,
                     "filtering": f'[{{"field":"campaign.id","operator":"IN","value":["{camp["meta_campaign_id"]}"]}}]',
+                    "level": "campaign",
                     "time_increment": 1,
                     "time_range": f'{{"since":"{since}","until":"{until}"}}',
                     "limit": 90,
