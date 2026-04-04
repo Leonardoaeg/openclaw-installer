@@ -508,10 +508,28 @@ def _sync_account_metrics_background(
                 timeout=20,
             )
             if resp.status_code != 200:
+                logger.info(
+                    "BG metrics [campaign %s / meta %s]: Meta API status=%s — skipping",
+                    camp["id"], camp["meta_campaign_id"], resp.status_code,
+                )
                 continue
+            data_rows = resp.json().get("data", [])
+            first_date_start = next(
+                (r.get("date_start") for r in data_rows if r.get("date_start")),
+                None,
+            )
+            logger.info(
+                "BG metrics [campaign %s / meta %s]: status=%s rows=%d first_date_start=%s",
+                camp["id"], camp["meta_campaign_id"], resp.status_code, len(data_rows), first_date_start,
+            )
             total_conversations = 0
-            for row in resp.json().get("data", []):
+            for row in data_rows:
                 actions = row.get("actions") or []
+                if not actions:
+                    logger.info(
+                        "BG metrics [campaign %s / meta %s / date %s]: actions vacío",
+                        camp["id"], camp["meta_campaign_id"], row.get("date_start"),
+                    )
                 action_values = row.get("action_values") or []
 
                 def _av(types):
@@ -555,6 +573,10 @@ def _sync_account_metrics_background(
                     },
                     on_conflict="tenant_id,campaign_id,date",
                 ).execute()
+            logger.info(
+                "BG metrics [campaign %s / meta %s]: total_conversations=%d",
+                camp["id"], camp["meta_campaign_id"], total_conversations,
+            )
             # Si cualquier día del período tuvo conversaciones, clasificar la campaña
             # como messaging independientemente del objective declarado.
             if total_conversations > 0:
