@@ -503,6 +503,7 @@ def _sync_account_metrics_background(
                     "level": "campaign",
                     "time_increment": 1,
                     "time_range": f'{{"since":"{since}","until":"{until}"}}',
+                    "action_attribution_windows": '["7d_click","1d_view"]',
                     "limit": 90,
                 },
                 timeout=20,
