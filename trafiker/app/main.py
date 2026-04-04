@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from app.routers import agent, campaigns, metrics, alerts, training
+from app.routers import agent, campaigns, metrics, alerts, training, meta
 from app.scheduler.jobs import start_scheduler, stop_scheduler
 
 
@@ -35,7 +35,7 @@ app.include_router(campaigns.router, prefix="/campaigns", tags=["Campañas"])
 app.include_router(metrics.router, prefix="/metrics", tags=["Métricas"])
 app.include_router(alerts.router, prefix="/alerts", tags=["Alertas"])
 app.include_router(training.router, prefix="/training", tags=["Entrenamiento"])
-
+app.include_router(meta.router, prefix="/v1/meta", tags=["Meta OAuth"])
 
 @app.get("/", tags=["Health"])
 def root():
