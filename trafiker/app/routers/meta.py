@@ -523,6 +523,13 @@ def _sync_account_metrics_background(
                 clicks = int(row.get("clicks") or 0)
                 revenue = _av(["purchase", "offsite_conversion.fb_pixel_purchase"])
                 conversions = _ac(["purchase", "offsite_conversion.fb_pixel_purchase"])
+                # WhatsApp / messaging conversations
+                # onsite_conversion.messaging_conversation_started_7d uses a 7-day attribution window;
+                # it is NOT a strict daily count but it is the canonical Meta signal for messaging.
+                conversations_started = _ac(["onsite_conversion.messaging_conversation_started_7d"])
+                cost_per_conversation = (
+                    round(spend / conversations_started, 4) if conversations_started > 0 else None
+                )
                 d = row.get("date_start")
                 if not d:
                     continue
@@ -540,6 +547,8 @@ def _sync_account_metrics_background(
                         "cpc": float(row.get("cpc") or 0),
                         "cpm": float(row.get("cpm") or 0),
                         "roas": round(revenue / spend, 4) if spend > 0 and revenue > 0 else None,
+                        "conversations_started": conversations_started,
+                        "cost_per_conversation": cost_per_conversation,
                     },
                     on_conflict="tenant_id,campaign_id,date",
                 ).execute()
@@ -584,6 +593,14 @@ def _sync_account_full_background(
                         "start_time": c.get("start_time"),
                         "stop_time": c.get("stop_time"),
                         "last_synced_at": date_type.today().isoformat(),
+                        # Channel classification — phase 1
+                        # is_messaging: objective signals a messaging campaign (WhatsApp or Messenger)
+                        # is_whatsapp:  stays False until adset destination_type confirms WHATSAPP (phase 2)
+                        # destination_type: populated in phase 2 via adset fetch
+                        "is_messaging": c.get("objective") == "MESSAGES",
+                        "is_whatsapp": False,
+                        "channel_type": "messaging" if c.get("objective") == "MESSAGES" else None,
+                        "destination_type": None,
                     }
                     for c in campaigns
                 ]
