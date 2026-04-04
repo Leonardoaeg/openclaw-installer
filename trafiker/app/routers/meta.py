@@ -470,6 +470,62 @@ CAMPAIGN_FIELDS = "id,name,status,objective,daily_budget,lifetime_budget,start_t
 INSIGHT_FIELDS = "spend,impressions,clicks,reach,ctr,cpc,cpm,actions,action_values"
 
 
+def _save_raw_insight(
+    db,
+    tenant_id: str,
+    meta_account_id: str,
+    meta_campaign_id: str,
+    row: dict,
+    since: str,
+    until: str,
+) -> str | None:
+    """
+    Upsert del insight crudo en raw_meta_insights.
+    Devuelve el id UUID del row guardado, o None si falla.
+    Nunca propaga excepciones: el sync principal no debe bloquearse.
+    """
+    d = row.get("date_start")
+    if not d:
+        return None
+    try:
+        result = db.table("raw_meta_insights").upsert(
+            {
+                "tenant_id": tenant_id,
+                "meta_account_id": meta_account_id,
+                "meta_campaign_id": meta_campaign_id,
+                "date": d,
+                "synced_at": datetime.now(timezone.utc).isoformat(),
+                "api_version": "v21.0",
+                "request_params": {
+                    "since": since,
+                    "until": until,
+                    "level": "campaign",
+                    "action_attribution_windows": ["7d_click", "1d_view"],
+                    "fields": INSIGHT_FIELDS,
+                },
+                "raw_actions": row.get("actions") or [],
+                "raw_action_values": row.get("action_values") or [],
+                "spend": float(row.get("spend") or 0),
+                "impressions": int(row.get("impressions") or 0),
+                "clicks": int(row.get("clicks") or 0),
+                "reach": int(row.get("reach") or 0),
+                "ctr": float(row.get("ctr") or 0),
+                "cpc": float(row.get("cpc") or 0),
+                "cpm": float(row.get("cpm") or 0),
+            },
+            on_conflict="tenant_id,meta_campaign_id,date",
+        ).execute()
+        if result.data:
+            return result.data[0]["id"]
+        return None
+    except Exception as exc:
+        logger.warning(
+            "raw_meta_insights upsert failed for campaign %s date %s: %s",
+            meta_campaign_id, d, exc,
+        )
+        return None
+
+
 def _sync_account_metrics_background(
     token: str,
     meta_ad_account_id: str,
@@ -525,6 +581,15 @@ def _sync_account_metrics_background(
             )
             total_conversations = 0
             for row in data_rows:
+                raw_insight_id = _save_raw_insight(
+                    db,
+                    tenant_id,
+                    supabase_account_id,
+                    camp["meta_campaign_id"],
+                    row,
+                    since,
+                    until,
+                )
                 actions = row.get("actions") or []
                 if not actions:
                     logger.info(
@@ -571,6 +636,7 @@ def _sync_account_metrics_background(
                         "roas": round(revenue / spend, 4) if spend > 0 and revenue > 0 else None,
                         "conversations_started": conversations_started,
                         "cost_per_conversation": cost_per_conversation,
+                        "raw_insight_id": raw_insight_id,
                     },
                     on_conflict="tenant_id,campaign_id,date",
                 ).execute()
