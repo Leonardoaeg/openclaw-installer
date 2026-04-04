@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     # Meta Ads (opcional en esta fase)
     meta_app_id: str = ""
     meta_app_secret: str = ""
+    meta_redirect_uri: str = ""
 
     # General
     environment: str = "production"
