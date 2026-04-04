@@ -673,6 +673,89 @@ def sync_account(
     }
 
 
+@router.get("/accounts/{account_id}/debug-action-types")
+def debug_action_types(
+    account_id: str,
+    days: int = 30,
+    authorization: str | None = Header(default=None),
+):
+    """DEBUG ONLY — dumps all raw action_type values from Meta insights."""
+    user_id = _extract_user_id(authorization)
+    tenant_id = _get_tenant_id(user_id)
+    db = get_supabase()
+
+    acc_result = (
+        db.table("meta_accounts")
+        .select("id,meta_ad_account_id,access_token_encrypted")
+        .eq("id", account_id)
+        .eq("tenant_id", tenant_id)
+        .eq("status", "active")
+        .limit(1)
+        .execute()
+    )
+    if not acc_result.data:
+        raise HTTPException(status_code=404, detail="Cuenta no encontrada o inactiva")
+
+    acc = acc_result.data[0]
+    token = acc["access_token_encrypted"]
+    meta_ad_account_id = acc["meta_ad_account_id"]
+
+    today = date_type.today()
+    since = (today - timedelta(days=days)).isoformat()
+    until = today.isoformat()
+
+    resp = httpx.get(
+        f"{GRAPH_BASE}/{meta_ad_account_id}/insights",
+        params={
+            "access_token": token,
+            "fields": "campaign_id,campaign_name,actions,action_values",
+            "time_range": f'{{"since":"{since}","until":"{until}"}}',
+            "level": "campaign",
+            "limit": 50,
+        },
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=400,
+            detail=resp.json().get("error", {}).get("message", "Meta API error"),
+        )
+
+    summary: dict[str, dict] = {}
+    rows_debug = []
+
+    for row in resp.json().get("data", []):
+        cname = row.get("campaign_name", row.get("campaign_id", "?"))
+        row_actions = row.get("actions") or []
+        row_av = row.get("action_values") or []
+
+        for a in row_actions:
+            at = a.get("action_type", "unknown")
+            val = float(a.get("value", 0))
+            entry = summary.setdefault(at, {"total_value": 0.0, "campaigns": []})
+            entry["total_value"] += val
+            if cname not in entry["campaigns"]:
+                entry["campaigns"].append(cname)
+
+        rows_debug.append({
+            "campaign": cname,
+            "action_types": [a.get("action_type") for a in row_actions],
+            "action_value_types": [a.get("action_type") for a in row_av],
+        })
+
+    logger.info(
+        "DEBUG action_types for account %s: %s",
+        account_id,
+        list(summary.keys()),
+    )
+
+    return {
+        "period": {"since": since, "until": until},
+        "action_types_summary": summary,
+        "rows": rows_debug,
+    }
+
+
 # ── Meta Data Deletion Callback ────────────────────────────────────────────────
 
 def _parse_signed_request(signed_request: str, app_secret: str) -> dict:
