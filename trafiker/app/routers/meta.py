@@ -508,6 +508,7 @@ def _sync_account_metrics_background(
             )
             if resp.status_code != 200:
                 continue
+            total_conversations = 0
             for row in resp.json().get("data", []):
                 actions = row.get("actions") or []
                 action_values = row.get("action_values") or []
@@ -527,6 +528,7 @@ def _sync_account_metrics_background(
                 # onsite_conversion.messaging_conversation_started_7d uses a 7-day attribution window;
                 # it is NOT a strict daily count but it is the canonical Meta signal for messaging.
                 conversations_started = _ac(["onsite_conversion.messaging_conversation_started_7d"])
+                total_conversations += conversations_started
                 cost_per_conversation = (
                     round(spend / conversations_started, 4) if conversations_started > 0 else None
                 )
@@ -552,6 +554,12 @@ def _sync_account_metrics_background(
                     },
                     on_conflict="tenant_id,campaign_id,date",
                 ).execute()
+            # Si cualquier día del período tuvo conversaciones, clasificar la campaña
+            # como messaging independientemente del objective declarado.
+            if total_conversations > 0:
+                db.table("campaigns").update(
+                    {"is_messaging": True, "channel_type": "messaging"}
+                ).eq("id", camp["id"]).execute()
         except Exception as exc:
             logger.error("BG metrics: error for campaign %s: %s", camp["id"], exc)
 
